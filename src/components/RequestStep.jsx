@@ -38,7 +38,7 @@ const buildCurl = ({ auth, method, url, bodyText, merchantId }) => {
 
 const RequestStep = ({
   step, index, auth, method, url, bodyText, bodyError, edited, response, extracted,
-  loading, missing, merchantId, onUrlChange, onBodyChange, onReset, onSend
+  loading, missing, merchantId, onUrlChange, onBodyChange, onReset, onSend, onLoadSample
 }) => {
   const [tab, setTab] = useState(step.body === null ? 'headers' : 'body');
   const [respTab, setRespTab] = useState('body');
@@ -99,6 +99,18 @@ const RequestStep = ({
         </button>
       </div>
 
+      {onLoadSample && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs bg-purple-50 border border-purple-100 rounded-lg px-3 py-2 text-purple-800">
+          <span className="flex-1">
+            🔏 The gateway only accepts this call with SSL certificate authentication and with standalone tokenisation enabled by your PSP.
+            If your merchant isn't set up for that, load a sample response to demo the rest of the flow.
+          </span>
+          <button onClick={onLoadSample} className="px-2.5 py-1 rounded-md bg-purple-600 text-white font-medium hover:bg-purple-700">
+            Load sample response
+          </button>
+        </div>
+      )}
+
       {/* Request tabs */}
       <div className="flex items-center gap-1 border-b border-gray-200 mb-3">
         {step.body !== null && (
@@ -146,11 +158,16 @@ const RequestStep = ({
           <div className="flex flex-wrap items-center gap-2 mb-2">
             <span className="text-sm font-semibold text-gray-700">Response</span>
             <span className={`text-xs font-mono font-semibold px-2 py-0.5 rounded ${statusStyle(response.status)}`}>
-              {response.status || 'ERR'} {response.statusText || ''}
+              {response.sample ? 'SAMPLE' : `${response.status || 'ERR'} ${response.statusText || ''}`}
             </span>
             {response.data?.result && (
               <span className={`text-xs font-semibold px-2 py-0.5 rounded ${resultStyle(response.data.result)}`}>
                 result: {response.data.result}
+              </span>
+            )}
+            {response.sample && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-purple-100 text-purple-700">
+                Illustrative sample (not from the gateway)
               </span>
             )}
             {response.durationMs != null && (

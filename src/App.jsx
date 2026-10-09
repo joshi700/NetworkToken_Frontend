@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import SettingsPage from './pages/SettingsPage';
 import HomePage from './pages/HomePage';
 import FlowPage from './pages/FlowPage';
+import LearnPage from './pages/LearnPage';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/home" element={<HomePage />} />
             <Route path="/flow/:flowId" element={<FlowPage />} />
+            <Route path="/learn" element={<LearnPage />} />
             <Route path="*" element={<Navigate to="/settings" replace />} />
           </Routes>
         </Layout>

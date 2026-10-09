@@ -10,8 +10,11 @@ export const generateId = (prefix) => {
   return `${prefix}_${ts}_${rnd}`.toUpperCase();
 };
 
-export const merchantBase = (config) =>
-  `${config.apiBaseUrl.replace(/\/$/, '')}/api/rest/version/${config.apiVersion}/merchant/${config.merchantId || '{merchantId}'}`;
+// Certificate-authenticated requests go to a separate host supplied by the PSP
+export const merchantBase = (config, auth = 'password') => {
+  const host = auth === 'certificate' && config.certApiBaseUrl ? config.certApiBaseUrl : config.apiBaseUrl;
+  return `${host.replace(/\/$/, '')}/api/rest/version/${config.apiVersion}/merchant/${config.merchantId || '{merchantId}'}`;
+};
 
 export const isMasked = (value) => typeof value === 'string' && /x/i.test(value);
 
@@ -85,6 +88,30 @@ const generatePaymentData = {
     }
     return body;
   },
+  // Illustrative response, shaped like the Generate Payment Data example in the Mastercard developer docs.
+  // Used to demo the flow when the merchant isn't set up for certificate authentication.
+  sample: ({ vars }) => ({
+    repositoryId: 'SAMPLE_REPO',
+    result: 'SUCCESS',
+    schemeToken: { provider: 'MDES', status: 'ACTIVE', statusTime: new Date().toISOString() },
+    sourceOfFunds: {
+      provided: {
+        card: {
+          brand: 'MASTERCARD',
+          devicePayment: { onlinePaymentCryptogram: 'AAABBBCCCDDDEEEFFF000111222=' },
+          deviceSpecificExpiry: { month: '11', year: '30' },
+          deviceSpecificNumber: '5204247750001497',
+          expiry: { month: '1', year: '39' },
+          fundingMethod: 'CREDIT',
+          number: '511111xxxxxx1118',
+          scheme: 'MASTERCARD'
+        }
+      },
+      type: 'SCHEME_TOKEN'
+    },
+    status: 'VALID',
+    token: vars.gatewayToken || '5111113656701118'
+  }),
   extract: (data) => {
     const card = get(data, 'sourceOfFunds.provided.card') || {};
     return {
@@ -104,11 +131,11 @@ const generatePaymentData = {
 const payWithPaymentData = {
   id: 'pay',
   title: 'Pay (Gateway)',
-  subtitle: 'Authorize and capture through the gateway using the gateway token, plus the network token payment data from the previous step. The DPAN and expiry are only included when the response returned them unmasked.',
+  subtitle: 'Authorize and capture through the gateway with the gateway token, plus the network token payment data from the previous step when you have it. With the token only, the gateway picks the network token and gets the cryptogram itself (fully managed).',
   operation: 'Transaction: Pay',
   docs: `${DOCS}/Transaction%3a%20%20Pay.html`,
   method: 'PUT',
-  requires: ['gatewayToken', 'cryptogram'],
+  requires: ['gatewayToken'],
   url: ({ base, vars }) => `${base}/order/${vars.orderId}/transaction/${vars.transactionId}`,
   body: ({ config, tokenOptions, vars }) => {
     const card = {};
@@ -128,15 +155,50 @@ const payWithPaymentData = {
         currency: config.currency,
         reference: vars.orderId
       },
-      sourceOfFunds: {
-        type: 'SCHEME_TOKEN',
-        token: vars.gatewayToken || '{token}',
-        ...(Object.keys(card).length ? { provided: { card } } : {})
-      },
+      sourceOfFunds: Object.keys(card).length
+        ? { type: 'SCHEME_TOKEN', token: vars.gatewayToken || '{token}', provided: { card } }
+        : { token: vars.gatewayToken || '{token}' },
       transaction: {
         source: tokenOptions.transactionSource || 'INTERNET',
         reference: vars.transactionId
       }
+    };
+  },
+  extract: (data) => ({
+    payResult: data?.result,
+    gatewayCode: get(data, 'response.gatewayCode'),
+    authorizationCode: get(data, 'transaction.authorizationCode')
+  })
+};
+
+// Pass-through: the network token and cryptogram come from outside the gateway
+const payPassThrough = {
+  id: 'payPassThrough',
+  title: 'Pay with External Network Token',
+  subtitle: 'The merchant (or another token requestor) already has the network token and cryptogram from MDES / VTS. The gateway passes them to the acquirer as a SCHEME_TOKEN payment.',
+  operation: 'Transaction: Pay',
+  docs: `${DOCS}/Transaction%3a%20%20Pay.html`,
+  method: 'PUT',
+  url: ({ base, vars }) => `${base}/order/${vars.orderId}/transaction/${vars.transactionId}`,
+  body: ({ config, tokenOptions, vars }) => {
+    const ext = tokenOptions.externalToken || {};
+    const devicePayment = {};
+    if (ext.cryptogram) devicePayment.onlinePaymentCryptogram = ext.cryptogram;
+    if (ext.eci) devicePayment.eciIndicator = ext.eci;
+    return {
+      apiOperation: 'PAY',
+      order: { amount: vars.amount || config.amount, currency: config.currency, reference: vars.orderId },
+      sourceOfFunds: {
+        type: 'SCHEME_TOKEN',
+        provided: {
+          card: {
+            number: ext.number,
+            expiry: { month: ext.expiryMonth, year: ext.expiryYear },
+            ...(Object.keys(devicePayment).length ? { devicePayment } : {})
+          }
+        }
+      },
+      transaction: { source: tokenOptions.transactionSource || 'INTERNET', reference: vars.transactionId }
     };
   },
   extract: (data) => ({
@@ -161,6 +223,7 @@ export const FLOWS = [
   {
     id: 'gateway-pay',
     number: 1,
+    model: 'Fully managed',
     name: 'Tokenise → Payment Data → Pay',
     short: 'Generate a network token, get payment data, and pay through the gateway',
     description: 'End-to-end with the gateway: provision the network token, generate a cryptogram, then send PAY with the token and payment data.',
@@ -169,6 +232,7 @@ export const FLOWS = [
   {
     id: 'external-pay',
     number: 2,
+    model: 'Standalone tokenisation',
     name: 'Tokenise → Payment Data → Pay Outside',
     short: 'Generate a network token and payment data, then pay outside the gateway',
     description: 'The gateway provisions the token and generates the cryptogram. You take the DPAN, cryptogram and ECI to another processor.',
@@ -177,10 +241,20 @@ export const FLOWS = [
   {
     id: 'tokenise-only',
     number: 3,
+    model: 'Token provisioning',
     name: 'Tokenise Only',
     short: 'Only generate a network token',
     description: 'Provision a network token for the card and check its status. No cryptogram is generated and no payment is made.',
     steps: [createToken, retrieveToken]
+  },
+  {
+    id: 'pass-through',
+    number: 4,
+    model: 'Pass-through',
+    name: 'Pay with External Network Token',
+    short: 'Pass a network token and cryptogram from outside the gateway into PAY',
+    description: 'You already have the network token and cryptogram from another token requestor. The gateway passes them through to the acquirer. This flow works with the API password.',
+    steps: [payPassThrough]
   }
 ];
 

@@ -10,6 +10,22 @@ const Field = ({ label, hint, children }) => (
   </div>
 );
 
+// Reads a PEM/CRT/KEY file into text so it can be stored like a pasted value
+const PemUpload = ({ accept, onLoad }) => (
+  <label className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer text-gray-700">
+    📁 Upload file
+    <input
+      type="file" accept={accept} className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        file.text().then(onLoad);
+        e.target.value = '';
+      }}
+    />
+  </label>
+);
+
 const SectionTitle = ({ n, children }) => (
   <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center">
     <span className="bg-primary-100 text-primary-700 rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm font-bold">
@@ -29,6 +45,9 @@ const SettingsPage = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const ext = tokenOptions.externalToken || {};
+  const updateExt = (patch) => updateTokenOptions({ externalToken: { ...ext, ...patch } });
+  const certReady = /BEGIN CERTIFICATE/.test(config.clientCert || '') && /PRIVATE KEY/.test(config.clientKey || '');
 
   const handleConfigChange = (field, value) => {
     if (field === 'merchantId') {
@@ -189,39 +208,72 @@ const SettingsPage = () => {
       <div className="card mb-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-1 flex items-center">
           <span className="bg-purple-100 text-purple-700 rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm">🔏</span>
-          Certificate Authentication
+          SSL Certificate (for Generate Payment Data)
+          <span className={`ml-auto text-xs font-medium px-2 py-1 rounded-full ${certReady ? 'bg-success-50 text-success-700' : 'bg-gray-100 text-gray-600'}`}>
+            {certReady ? '● Certificate loaded' : '○ No certificate'}
+          </span>
         </h2>
         <p className="text-sm text-gray-600 mb-4 ml-11">
-          Optional. All requests use the API password by default. Some merchant profiles only allow Generate Payment Data with
-          SSL client-certificate authentication. If yours does, paste the PEM certificate and private key registered in Merchant Administration.
-          If you leave these blank, the backend uses
-          <code className="font-mono"> GATEWAY_CLIENT_CERT</code> / <code className="font-mono">GATEWAY_CLIENT_KEY</code> when they are set.
+          Generate Payment Data (standalone tokenisation) only works with SSL client-certificate (mutual TLS) authentication.
+          The API password is not enough. All other calls keep using the API password.
         </p>
+
+        <div className="ml-11 mb-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <p className="font-semibold text-gray-800 mb-1">Certificate requirements</p>
+            <ul className="list-disc list-inside text-gray-600 space-y-0.5">
+              <li>X.509 certificate from a Mastercard-approved CA (for example DigiCert; Entrust is no longer accepted)</li>
+              <li>Key Usage extension marked critical, including <code className="font-mono">clientAuth</code></li>
+              <li>Subject CN is the merchant's domain or legal name; O is the merchant organisation</li>
+              <li>A test profile accepts test or production certificates; a production profile accepts production certificates only</li>
+            </ul>
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <p className="font-semibold text-gray-800 mb-1">Set up with your PSP</p>
+            <ol className="list-decimal list-inside text-gray-600 space-y-0.5">
+              <li>Get the certificate from the CA, keeping the private key</li>
+              <li>Ask your PSP to register it on the merchant profile (Merchant Manager → API configuration)</li>
+              <li>Ask your PSP to enable standalone tokenisation and network tokenisation</li>
+              <li>Get the <strong>certificate-auth host name</strong> from your PSP. It is different from the password host.</li>
+            </ol>
+          </div>
+        </div>
+
         <div className="space-y-4">
-          <Field label="Use certificate for">
-            <select className="input-field" value={config.certScope} onChange={(e) => handleConfigChange('certScope', e.target.value)}>
-              <option value="none">Never (API password for all requests)</option>
-              <option value="paymentData">Generate Payment Data only (other requests use the API password)</option>
-              <option value="all">All requests</option>
-            </select>
-          </Field>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Client Certificate (PEM)">
+            <Field label="Use certificate for">
+              <select className="input-field" value={config.certScope} onChange={(e) => handleConfigChange('certScope', e.target.value)}>
+                <option value="none">Never (API password for all requests)</option>
+                <option value="paymentData">Generate Payment Data only</option>
+                <option value="all">All requests</option>
+              </select>
+            </Field>
+            <Field label="Certificate-auth Gateway URL" hint="From your PSP. If blank, the Gateway URL above is used.">
+              <input
+                type="url" className="input-field font-mono text-sm" placeholder="https://<cert-host-from-psp>"
+                value={config.certApiBaseUrl} onChange={(e) => handleConfigChange('certApiBaseUrl', e.target.value.trim())}
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Client Certificate (PEM, with chain)">
+              <PemUpload accept=".pem,.crt,.cer" onLoad={(text) => handleConfigChange('clientCert', text)} />
               <textarea
-                className="input-field font-mono text-xs h-32" spellCheck={false}
+                className="input-field font-mono text-xs h-28 mt-2" spellCheck={false}
                 placeholder="-----BEGIN CERTIFICATE-----"
                 value={config.clientCert} onChange={(e) => handleConfigChange('clientCert', e.target.value)}
               />
             </Field>
             <Field label="Private Key (PEM)">
+              <PemUpload accept=".pem,.key" onLoad={(text) => handleConfigChange('clientKey', text)} />
               <textarea
-                className="input-field font-mono text-xs h-32" spellCheck={false}
+                className="input-field font-mono text-xs h-28 mt-2" spellCheck={false}
                 placeholder="-----BEGIN PRIVATE KEY-----"
                 value={config.clientKey} onChange={(e) => handleConfigChange('clientKey', e.target.value)}
               />
             </Field>
           </div>
-          <Field label="Key Passphrase (if encrypted)">
+          <Field label="Key Passphrase (if encrypted)" hint={`Kept in sessionStorage and sent only to the backend proxy. On a shared deployment, set GATEWAY_CLIENT_CERT / GATEWAY_CLIENT_KEY on the backend instead of pasting the key here.`}>
             <input
               type="password" className="input-field"
               value={config.clientKeyPassphrase} onChange={(e) => handleConfigChange('clientKeyPassphrase', e.target.value)}
@@ -234,7 +286,7 @@ const SettingsPage = () => {
       <div className="card mb-6">
         <SectionTitle n={2}>Test Card (FPAN)</SectionTitle>
         <div className="space-y-4">
-          <Field label="Card Number *" hint="Use a card from your acquirer's network token test range">
+          <Field label="Card Number *" hint="Standalone tokenisation test cards (MTF): 5111111111111118 or 2223000000000007 (Mastercard), 4012000033330026 (Visa), all with expiry 01/39">
             <input
               type="text" className="input-field font-mono" maxLength={19}
               value={testCard.cardNumber}
@@ -295,6 +347,37 @@ const SettingsPage = () => {
               <option value="MERCHANT">MERCHANT</option>
               <option value="MOTO">MOTO</option>
             </select>
+          </Field>
+        </div>
+
+        <h3 className="font-semibold text-gray-800 mt-6 mb-1">External Network Token (Flow 4: Pass-through)</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          A network token and cryptogram obtained outside the gateway. The default is the MDES test token from the Mastercard docs.
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="col-span-2">
+            <Field label="Network Token (DPAN)">
+              <input type="text" className="input-field font-mono" value={ext.number}
+                onChange={(e) => updateExt({ number: e.target.value.replace(/\s/g, '') })} />
+            </Field>
+          </div>
+          <Field label="Expiry MM">
+            <input type="text" className="input-field font-mono" maxLength={2} value={ext.expiryMonth}
+              onChange={(e) => updateExt({ expiryMonth: e.target.value })} />
+          </Field>
+          <Field label="Expiry YY">
+            <input type="text" className="input-field font-mono" maxLength={2} value={ext.expiryYear}
+              onChange={(e) => updateExt({ expiryYear: e.target.value })} />
+          </Field>
+          <Field label="ECI" hint="Required for VTS">
+            <input type="text" className="input-field font-mono" maxLength={2} value={ext.eci}
+              onChange={(e) => updateExt({ eci: e.target.value })} />
+          </Field>
+        </div>
+        <div className="mt-4">
+          <Field label="Cryptogram (UCAF / TAVV, Base64)">
+            <input type="text" className="input-field font-mono" value={ext.cryptogram}
+              onChange={(e) => updateExt({ cryptogram: e.target.value })} />
           </Field>
         </div>
       </div>

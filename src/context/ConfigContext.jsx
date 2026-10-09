@@ -18,14 +18,15 @@ export const DEFAULT_CONFIG = {
   amount: '10.00',
   // API password is used by default; certificate auth is optional
   certScope: 'none', // none | paymentData | all
+  certApiBaseUrl: '', // certificate-auth host from your PSP (differs from the password host)
   clientCert: '',
   clientKey: '',
   clientKeyPassphrase: ''
 };
 
 export const DEFAULT_TEST_CARD = {
-  cardNumber: '5123450000000008',
-  expiryMonth: '12',
+  cardNumber: '5111111111111118', // Mastercard standalone-tokenisation test card
+  expiryMonth: '01',
   expiryYear: '39',
   cvv: '100',
   nameOnCard: 'Test Cardholder'
@@ -34,7 +35,15 @@ export const DEFAULT_TEST_CARD = {
 export const DEFAULT_TOKEN_OPTIONS = {
   preferredCryptogramType: 'CRYPTOGRAM', // CRYPTOGRAM | VERIFICATION_CODE | '' (omit)
   sensitiveData: '',                      // responseControls.sensitiveData — blank to omit
-  transactionSource: 'INTERNET'
+  transactionSource: 'INTERNET',
+  // Pass-through flow: network token obtained outside the gateway (MDES test token from the docs)
+  externalToken: {
+    number: '5204247750001497',
+    expiryMonth: '11',
+    expiryYear: '22',
+    cryptogram: 'AAABBBCCCDDDEEEFFF000111222=',
+    eci: ''
+  }
 };
 
 const load = (key, fallback) => {

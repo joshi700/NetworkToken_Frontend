@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useConfig } from '../context/ConfigContext';
 import { FLOWS } from '../lib/flows';
 
@@ -8,7 +8,8 @@ const STEP_TONE = {
   retrieveToken: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   paymentData: 'bg-amber-50 text-amber-700 border-amber-200',
   pay: 'bg-sky-50 text-sky-700 border-sky-200',
-  outside: 'bg-purple-50 text-purple-700 border-purple-200'
+  outside: 'bg-purple-50 text-purple-700 border-purple-200',
+  payPassThrough: 'bg-sky-50 text-sky-700 border-sky-200'
 };
 
 const HomePage = () => {
@@ -16,10 +17,11 @@ const HomePage = () => {
   const { config, testCard, isConfigured } = useConfig();
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-2">Choose a Flow</h1>
         <p className="text-gray-600">Each flow runs one API call at a time. You can edit the request before sending it.</p>
+        <Link to="/learn" className="text-sm text-primary-600 hover:underline">New to the models? Read about Unified Tokenisation →</Link>
       </div>
 
       {!isConfigured && (
@@ -40,14 +42,14 @@ const HomePage = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         {FLOWS.map(flow => (
           <button
             key={flow.id}
             onClick={() => navigate(`/flow/${flow.id}`)}
             className="card text-left hover:shadow-md hover:border-primary-300 transition-all flex flex-col"
           >
-            <span className="text-xs font-semibold text-primary-600 uppercase tracking-wide mb-1">Flow {flow.number}</span>
+            <span className="text-xs font-semibold text-primary-600 uppercase tracking-wide mb-1">Flow {flow.number} · {flow.model}</span>
             <h3 className="text-lg font-bold text-gray-900 mb-2">{flow.name}</h3>
             <p className="text-sm text-gray-600 mb-4 flex-1">{flow.description}</p>
             <ol className="space-y-1.5">

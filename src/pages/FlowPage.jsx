@@ -36,12 +36,14 @@ const FlowRunner = ({ flow }) => {
   // Templates are re-derived from the latest variables unless the user edited them
   const stepView = (step) => {
     const o = overrides[step.id] || {};
-    const defaultBody = step.body ? JSON.stringify(step.body(env), null, 2) : '';
+    const auth = authForStep(step, config);
+    const stepEnv = { ...env, base: merchantBase(config, auth) };
+    const defaultBody = step.body ? JSON.stringify(step.body(stepEnv), null, 2) : '';
     const bodyText = o.bodyText ?? defaultBody;
     return {
-      auth: authForStep(step, config),
+      auth,
       method: step.method,
-      url: o.url ?? step.url(env),
+      url: o.url ?? step.url(stepEnv),
       bodyText,
       bodyError: step.body ? parseJson(bodyText).error : null,
       edited: o.url != null || o.bodyText != null,
@@ -115,6 +117,21 @@ const FlowRunner = ({ flow }) => {
     setLoadingStep(null);
   };
 
+  // Demo aid: show an illustrative response when the live call can't be made
+  const loadSample = (step) => {
+    const data = step.sample({ vars, config });
+    setResponses(prev => ({
+      ...prev,
+      [step.id]: { success: true, sample: true, status: 200, statusText: 'SAMPLE', durationMs: null, data }
+    }));
+    setHistory(prev => [{ time: new Date().toLocaleTimeString(), title: `${step.title} (sample)`, method: step.method, status: 'SAMPLE' }, ...prev]);
+    const found = Object.fromEntries(
+      Object.entries(step.extract(data) || {}).filter(([, v]) => v != null && v !== '')
+    );
+    setExtracted(prev => ({ ...prev, [step.id]: found }));
+    setVars(prev => ({ ...prev, ...found }));
+  };
+
   const resetFlow = () => {
     setVars({ ...newIds(), amount: config.amount });
     setOverrides({});
@@ -125,7 +142,7 @@ const FlowRunner = ({ flow }) => {
 
   const editableVars = ['orderId', 'transactionId', 'amount'];
   const derivedVars = Object.entries(vars).filter(([k, v]) => !editableVars.includes(k) && v != null && v !== '');
-  const showOrderFields = flow.steps.some(s => s.id === 'pay' || s.id === 'outside');
+  const showOrderFields = flow.steps.some(s => ['pay', 'outside', 'payPassThrough'].includes(s.id));
 
   return (
     <div>
@@ -134,7 +151,9 @@ const FlowRunner = ({ flow }) => {
           <button onClick={() => navigate('/home')} className="text-primary-600 hover:text-primary-700 text-sm font-medium mb-2">
             ← All flows
           </button>
-          <p className="text-xs font-semibold text-primary-600 uppercase tracking-wide">Flow {flow.number}</p>
+          <p className="text-xs font-semibold text-primary-600 uppercase tracking-wide">
+            Flow {flow.number} · {flow.model}
+          </p>
           <h1 className="text-3xl font-bold text-gray-900">{flow.name}</h1>
           <p className="text-gray-600 mt-1">{flow.description}</p>
         </div>
@@ -171,6 +190,7 @@ const FlowRunner = ({ flow }) => {
                 onBodyChange={(bodyText) => setOverride(step.id, { bodyText })}
                 onReset={() => resetOverride(step.id)}
                 onSend={() => send(step)}
+                onLoadSample={step.sample ? () => loadSample(step) : null}
               />
             );
           })}
@@ -233,7 +253,7 @@ const FlowRunner = ({ flow }) => {
                       <span className="text-gray-400 w-16 shrink-0">{h.time}</span>
                       <span className="font-mono font-bold w-10">{h.method}</span>
                       <span className="flex-1 truncate">{h.title}</span>
-                      <span className={`font-mono ${h.status >= 200 && h.status < 300 ? 'text-success-600' : 'text-error-600'}`}>
+                      <span className={`font-mono ${h.status === 'SAMPLE' ? 'text-purple-600' : h.status >= 200 && h.status < 300 ? 'text-success-600' : 'text-error-600'}`}>
                         {h.status || 'ERR'}
                       </span>
                     </li>

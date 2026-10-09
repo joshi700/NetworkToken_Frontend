@@ -20,6 +20,7 @@ const Layout = ({ children }) => {
           </div>
           <nav className="flex flex-wrap gap-1">
             <NavLink to="/settings" className={navClass}>⚙️ Settings</NavLink>
+            <NavLink to="/learn" className={navClass}>📚 Unified Tokenisation</NavLink>
             <NavLink to="/home" end className={navClass}>Flows</NavLink>
             {FLOWS.map(f => (
               <NavLink key={f.id} to={`/flow/${f.id}`} className={navClass}>
